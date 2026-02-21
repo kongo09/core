@@ -15,7 +15,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
-from .const import DISCOVERY_TIMEOUT
+from .const import DISCOVERY_TIMEOUT, DOMAIN
 from .coordinator import GoveeLocalApiCoordinator, GoveeLocalConfigEntry
 
 PLATFORMS: list[Platform] = [Platform.LIGHT]
@@ -26,16 +26,11 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass: HomeAssistant, entry: GoveeLocalConfigEntry) -> bool:
     """Set up Govee light local from a config entry."""
 
-    # Get source IPs for all enabled adapters
-    source_ips = await network.async_get_enabled_source_ips(hass)
+    source_ips = await async_get_source_ips(hass)
     _LOGGER.debug("Enabled source IPs: %s", source_ips)
 
     coordinator: GoveeLocalApiCoordinator = GoveeLocalApiCoordinator(
-        hass=hass,
-        config_entry=entry,
-        source_ips=[
-            source_ip for source_ip in source_ips if isinstance(source_ip, IPv4Address)
-        ],
+        hass=hass, config_entry=entry, source_ips=source_ips
     )
 
     async def await_cleanup():
@@ -57,7 +52,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoveeLocalConfigEntry) -
             _LOGGER.error("Start failed, errno: %d", ex.errno)
             return False
         _LOGGER.error("Port %s already in use", LISTENING_PORT)
-        raise ConfigEntryNotReady from ex
+        raise ConfigEntryNotReady(
+            translation_domain=DOMAIN,
+            translation_key="port_in_use",
+            translation_placeholders={"port": LISTENING_PORT},
+        ) from ex
 
     await coordinator.async_config_entry_first_refresh()
 
@@ -66,7 +65,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoveeLocalConfigEntry) -
             while not coordinator.devices:
                 await asyncio.sleep(delay=1)
     except TimeoutError as ex:
-        raise ConfigEntryNotReady from ex
+        raise ConfigEntryNotReady(
+            translation_domain=DOMAIN, translation_key="no_devices_found"
+        ) from ex
 
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -76,3 +77,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoveeLocalConfigEntry) -
 async def async_unload_entry(hass: HomeAssistant, entry: GoveeLocalConfigEntry) -> bool:
     """Unload a config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_get_source_ips(
+    hass: HomeAssistant,
+) -> set[str]:
+    """Get the source ips for Govee local."""
+    source_ips = await network.async_get_enabled_source_ips(hass)
+    return {
+        str(source_ip) for source_ip in source_ips if isinstance(source_ip, IPv4Address)
+    }
