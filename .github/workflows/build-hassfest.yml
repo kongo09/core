@@ -1,0 +1,31 @@
+name: Build custom hassfest image
+on:
+  push:
+    branches: [hassfest_custom_icons]
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push hassfest image
+        run: |
+          # Use the same approach HA core uses to build hassfest
+          docker build -t ghcr.io/kongo09/hassfest:latest -f - . <<'DOCKERFILE'
+          FROM ghcr.io/home-assistant/hassfest:latest
+          # Overlay your patched files on top of the official image
+          COPY script/hassfest/ /usr/src/homeassistant/script/hassfest/
+          DOCKERFILE
+          docker push ghcr.io/kongo09/hassfest:latest
